@@ -1,16 +1,36 @@
 # ZMap Network Scanner
 
-A containerized network scanning solution that analyzes connectivity by postal code.
+A containerized network scanning solution that analyzes connectivity by postal code with database storage and API access.
 
 ## Overview
 
 ZMap Network Scanner provides automated infrastructure for scanning IP networks and analyzing availability rates by postal code. The system features:
 
 - Network scanning via ZMap with configurable parameters
+- Database storage for scan results (PostgreSQL)
+- RESTful API for triggering scans and retrieving results
 - Visualization of response rates via charts and heatmaps
-- Docker containerization for easy deployment
-- AWS deployment via Terraform
+- Multi-container Docker deployment with Docker Compose
+- AWS deployment via Terraform and ECS
+- S3 integration for input/output data
 - Simulation mode for testing without network access
+
+## System Architecture
+
+The system consists of three main components:
+
+1. **PostgreSQL Database** - Stores scan results and metadata
+2. **API Service** - RESTful API for scan management and result querying
+3. **Scanner Service** - Performs ZMap network scans and processes results
+
+### Data Flow
+
+1. Scanner receives input CSV with networks and postal codes
+2. API service processes input and creates scan record in database
+3. ZMap scans networks and identifies reachable IPs
+4. Results are stored in database with postal code analysis
+5. Availability statistics are calculated and accessible via API
+6. Optional: Results are uploaded to S3 for persistence
 
 ## Quick Start
 
@@ -34,12 +54,41 @@ python Scripts/zmap_postal_code_availability.py --input Data/input.csv --output 
 
 ### Docker Deployment
 
+#### Single Container (Legacy)
+
 ```bash
 # Build the Docker image
 docker build -t zmap-scanner -f docker_scanner_build .
 
 # Run the container
 docker run -v $(pwd)/Data:/app/data -v $(pwd)/output:/app/output zmap-scanner
+```
+
+#### Multi-Container (Recommended)
+
+```bash
+# Build and start all services
+docker-compose up -d
+
+# Run a scan using the scanner service
+docker-compose run --rm scanner --input-file /app/data/input.csv --simulate
+
+# Access the API documentation
+open http://localhost:8000/docs
+
+# Trigger a scan via API
+curl -X POST http://localhost:8000/scans \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input_file": "/app/data/input.csv",
+    "port": 80,
+    "bandwidth": "10M",
+    "simulate": true,
+    "description": "Test scan"
+  }'
+
+# View scan results
+curl http://localhost:8000/scans/{scan_id}/availability
 ```
 
 ### AWS Deployment: Beginner-Friendly Guide
@@ -265,6 +314,37 @@ python Scripts/zmap_visualizing_response_rate.py --input networks_and_ips.csv --
 - `--max-codes`: Maximum postal codes to display
 - `--min-threshold`: Minimum response rate threshold
 
+### API Endpoints
+
+The system provides a RESTful API for managing scans and retrieving results:
+
+#### Scan Management:
+- `POST /scans`: Create a new scan
+- `GET /scans`: List all scans
+- `GET /scans/{scan_id}`: Get details of a specific scan
+
+#### Results:
+- `GET /scans/{scan_id}/availability`: Get availability statistics for a specific scan
+- `GET /availability`: Get availability statistics for all scans
+
+#### System:
+- `GET /health`: Health check endpoint
+
+Example API request to create a new scan:
+```json
+POST /scans
+{
+  "input_file": "/path/to/input.csv",
+  "max_networks": 1000,
+  "port": 80,
+  "bandwidth": "10M",
+  "simulate": false,
+  "description": "Scan description"
+}
+```
+
+For detailed API documentation, see the Swagger UI at `/docs` when the API service is running.
+
 ## Architecture
 
 The system consists of:
@@ -286,16 +366,24 @@ The script produces:
 2. Visualizations of response rates by postal code (bar chart or heatmap)
 3. Log output with availability percentages
 
-## AWS Deployment Details
+## AWS Deployment Options
+
+### Option 1: EC2-Based Deployment
+
+See the [terraform/README.md](terraform/README.md) for instructions on deploying to a single EC2 instance.
+
+### Option 2: Container-Based Deployment (Recommended)
 
 The Terraform configuration creates:
-- EC2 instance (Ubuntu) with ZMap installed
-- S3 bucket for data storage and results
+- ECS cluster for running containerized services
+- RDS PostgreSQL instance for data storage
+- S3 bucket for input/output data
+- ECR repositories for container images
+- Load balancer for API access
 - IAM roles with required permissions
-- Automated scanning via cron jobs
-- Results synced to S3 bucket
+- CloudWatch for logging and monitoring
 
-See the [terraform/README.md](terraform/README.md) for detailed deployment instructions.
+See [AWS_SETUP.md](AWS_SETUP.md) for detailed instructions on deploying the containerized version to AWS.
 
 ## Security Considerations
 
