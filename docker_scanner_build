@@ -1,0 +1,166 @@
+# Use an official Python runtime as a parent image
+FROM python:3.11-slim-bullseye
+
+# Set the working directory
+WORKDIR /app
+
+# Label maintainer information
+LABEL maintainer="your.email@example.com"
+LABEL version="1.0"
+LABEL description="ZMap network scanner with visualization capabilities"
+
+# Create a non-root user for security
+RUN groupadd -r zmap && useradd -r -g zmap -m zmap
+
+# Install dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    zmap \
+    apt-transport-https \
+    ca-certificates \
+    gnupg \
+    curl \
+    libgmp10 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Google Cloud SDK
+RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list && \
+    curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key --keyring /usr/share/keyrings/cloud.google.gpg add - && \
+    apt-get update -y && \
+    apt-get install --no-install-recommends google-cloud-sdk -y && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy requirements.txt file into the image
+COPY ./requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+# Create directories for data and output
+RUN mkdir -p /app/data /app/output && \
+    chown -R zmap:zmap /app/data /app/output
+
+# Copy scripts
+COPY Scripts/zmap_postal_code_availability.py /app/
+COPY Scripts/zmap_visualizing_response_rate.py /app/
+
+# Set up environment variables
+ENV PATH $PATH:/root/google-cloud-sdk/bin
+ENV PYTHONUNBUFFERED=1
+
+# Create an entrypoint script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+# Enable better error reporting\n\
+trap "echo \"An error occurred. Exiting...\" >&2" ERR\n\
+\n\
+# Default values\n\
+INPUT_FILE="data/input.csv"\n\
+MAX_NETWORKS=10000\n\
+PORT=80\n\
+BANDWIDTH="10M"\n\
+OUTPUT_DIR="/app/output"\n\
+\n\
+# Help message\n\
+function show_help {\n\
+  echo "Usage: $0 [options]"\n\
+  echo "Options:"\n\
+  echo "  --input-file     Input CSV file location (default: data/input.csv)"\n\
+  echo "  --max-networks   Maximum number of networks to scan (default: 10000)"\n\
+  echo "  --port           Port to scan (default: 80)"\n\
+  echo "  --bandwidth      ZMap bandwidth cap (default: 10M)"\n\
+  echo "  --output-dir     Output directory (default: /app/output)"\n\
+  echo "  --help           Show this help message"\n\
+}\n\
+\n\
+# Parse arguments\n\
+while [[ $# -gt 0 ]]; do\n\
+  case "$1" in\n\
+    --input-file)\n\
+      INPUT_FILE="$2"\n\
+      shift 2\n\
+      ;;\n\
+    --max-networks)\n\
+      MAX_NETWORKS="$2"\n\
+      shift 2\n\
+      ;;\n\
+    --port)\n\
+      PORT="$2"\n\
+      shift 2\n\
+      ;;\n\
+    --bandwidth)\n\
+      BANDWIDTH="$2"\n\
+      shift 2\n\
+      ;;\n\
+    --output-dir)\n\
+      OUTPUT_DIR="$2"\n\
+      shift 2\n\
+      ;;\n\
+    --help)\n\
+      show_help\n\
+      exit 0\n\
+      ;;\n\
+    *)\n\
+      echo "Unknown option: $1"\n\
+      show_help\n\
+      exit 1\n\
+      ;;\n\
+  esac\n\
+done\n\
+\n\
+# Create timestamp for output files\n\
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)\n\
+\n\
+# Check if we need to download from GCS\n\
+if [[ $INPUT_FILE == gs://* ]]; then\n\
+  echo "Downloading input file from Google Cloud Storage..."\n\
+  gsutil cp $INPUT_FILE /app/data/input.csv\n\
+  INPUT_FILE="/app/data/input.csv"\n\
+fi\n\
+\n\
+# Run the scan\n\
+echo "Starting ZMap scan with the following parameters:"\n\
+echo "  Input file: $INPUT_FILE"\n\
+echo "  Max networks: $MAX_NETWORKS"\n\
+echo "  Port: $PORT"\n\
+echo "  Bandwidth: $BANDWIDTH"\n\
+echo "  Output directory: $OUTPUT_DIR"\n\
+\n\
+echo "Running scanner script..."
+python3 /app/zmap_postal_code_availability.py \\\n\
+  --input "$INPUT_FILE" \\\n\
+  --max-networks "$MAX_NETWORKS" \\\n\
+  --port "$PORT" \\\n\
+  --bandwidth "$BANDWIDTH" \\\n\
+  --output "${OUTPUT_DIR}/response_rates_${TIMESTAMP}.png" \\\n\
+  --networks-file "/app/data/networks_${TIMESTAMP}.txt" || { echo "Scanner script failed"; exit 1; }\n\
+\n\
+# Run visualization on the output\n\
+echo "Running visualization script..."\n\
+python3 /app/zmap_visualizing_response_rate.py \\\n\
+  --input "/app/networks_and_ips.csv" \\\n\
+  --output "${OUTPUT_DIR}/heatmap_${TIMESTAMP}.png" \\\n\
+  --viz-type heatmap || { echo "Visualization script failed"; exit 1; }\n\
+\n\
+# Copy results back to GCS if output dir is a GCS path\n\
+if [[ $OUTPUT_DIR == gs://* ]]; then\n\
+  echo "Uploading results to Google Cloud Storage..."\n\
+  gsutil cp /app/networks_and_ips.csv "${OUTPUT_DIR}/networks_and_ips_${TIMESTAMP}.csv" || echo "Warning: Failed to upload networks_and_ips.csv"\n\
+  gsutil cp "/app/data/networks_${TIMESTAMP}.txt" "${OUTPUT_DIR}/networks_${TIMESTAMP}.txt" || echo "Warning: Failed to upload networks_${TIMESTAMP}.txt"\n\
+  gsutil cp "${OUTPUT_DIR}/response_rates_${TIMESTAMP}.png" "${OUTPUT_DIR}/response_rates_${TIMESTAMP}.png" || echo "Warning: Failed to upload response_rates image"\n\
+  gsutil cp "${OUTPUT_DIR}/heatmap_${TIMESTAMP}.png" "${OUTPUT_DIR}/heatmap_${TIMESTAMP}.png" || echo "Warning: Failed to upload heatmap image"\n\
+fi\n\
+\n\
+echo "Scan completed successfully!"\n\
+' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+
+# Switch to non-root user for security
+USER zmap
+
+# Set volume for data and results
+VOLUME ["/app/data", "/app/output"]
+
+# Expose port 80 for web server (if added in the future)
+EXPOSE 80
+
+# Set default command
+ENTRYPOINT ["/app/entrypoint.sh"]
