@@ -42,23 +42,197 @@ docker build -t zmap-scanner -f docker_scanner_build .
 docker run -v $(pwd)/Data:/app/data -v $(pwd)/output:/app/output zmap-scanner
 ```
 
-### AWS Deployment
+### AWS Deployment: Beginner-Friendly Guide
 
-```bash
-# Navigate to terraform directory
-cd terraform
+This guide will help you deploy the ZMap Network Scanner to AWS, even if you have only basic computer science knowledge. We'll take it step-by-step with clear explanations.
 
-# Initialize terraform
-terraform init
+#### What You'll Need
 
-# Deploy (creates EC2 instance, S3 bucket, etc.)
-terraform apply
+1. **Create an AWS Account**
+   - Go to [AWS Sign Up](https://aws.amazon.com/) and follow the instructions to create an account
+   - You'll need a credit card, but most of what we do fits in the free tier
+   - After signing up, go to your email and confirm your account
 
-# Upload scanner code and data
-S3_BUCKET=$(terraform output -raw s3_bucket_name)
-aws s3 cp ../zmap-scanner.zip s3://$S3_BUCKET/code/
-aws s3 cp ../Data/input.csv s3://$S3_BUCKET/data/
-```
+2. **Set Up Your Computer**
+   - We need to install two programs on your computer:
+   
+   First, install the AWS command line tool:
+   - For Windows: Download from [AWS CLI Windows Installer](https://awscli.amazonaws.com/AWSCLIV2.msi) and run the installer
+   - For Mac: In Terminal, type: `brew install awscli` (or install [Homebrew](https://brew.sh/) first if needed)
+   
+   Second, install Terraform:
+   - Download from [Terraform Download](https://www.terraform.io/downloads.html)
+   - For Windows: Extract the zip file and move terraform.exe to a folder in your PATH (like C:\Windows)
+   - For Mac: In Terminal, type: `brew install terraform`
+
+3. **Get Your AWS Security Keys**
+   - Log in to AWS
+   - Click on your name in the top right corner
+   - Select "Security credentials"
+   - Scroll to "Access keys" and click "Create access key"
+   - Follow the prompts and at the end, download your key file
+   - ⚠️ IMPORTANT: Keep these keys safe and don't share them with anyone!
+
+4. **Connect AWS to Your Computer**
+   - Open Terminal (Mac) or Command Prompt (Windows)
+   - Type: `aws configure`
+   - When prompted, enter:
+     - Your AWS Access Key ID from the downloaded file
+     - Your AWS Secret Access Key from the downloaded file
+     - Default region: `us-east-1` (just press Enter)
+     - Default output format: `json` (just press Enter)
+
+5. **Create a Key to Access Your Server**
+   - In Terminal/Command Prompt, type:
+     ```
+     ssh-keygen -t rsa -b 4096 -f ~/zmap_key
+     ```
+   - When asked for a passphrase, just press Enter twice
+   - This creates a key on your computer to safely connect to your AWS server
+   - Now upload this key to AWS:
+     ```
+     aws ec2 import-key-pair --key-name "zmap-key" --public-key-material fileb://~/zmap_key.pub
+     ```
+
+#### Setting Up Your Project
+
+1. **Get the Code**
+   - Download the project from GitHub:
+     ```
+     git clone https://github.com/fermi-park/ZMap_Dev.git
+     cd ZMap_Dev
+     ```
+   - If you don't have Git installed:
+     - Go to the [GitHub repository](https://github.com/fermi-park/ZMap_Dev)
+     - Click the green "Code" button
+     - Select "Download ZIP"
+     - Extract the ZIP file
+     - Open Terminal/Command Prompt and navigate to the extracted folder
+
+2. **Set Up Your AWS Settings**
+   - Go to the terraform folder:
+     ```
+     cd terraform
+     ```
+   - Create a settings file by typing:
+     ```
+     notepad terraform.tfvars
+     ```
+     (On Mac, use `nano terraform.tfvars` instead)
+   - Copy and paste the following:
+     ```
+     aws_region       = "us-east-1"
+     allowed_ssh_cidr = "0.0.0.0/0"
+     s3_bucket_name   = "zmap-scanner-data-UNIQUENAME"
+     key_name         = "zmap-key"
+     ```
+   - Replace UNIQUENAME with your name or some random numbers
+   - Save and close the file
+
+3. **Create Your AWS Resources**
+   - In the terraform folder, type:
+     ```
+     terraform init
+     ```
+   - This downloads necessary files (you'll see some green text)
+   - Then type:
+     ```
+     terraform apply
+     ```
+   - Type `yes` when prompted
+   - Wait about 2-3 minutes for AWS to create your resources
+   - When complete, you'll see green text with your server's IP address
+   - Type:
+     ```
+     terraform output > my_server_info.txt
+     ```
+   - This saves your server information to a file
+
+4. **Upload Your Project Files**
+   - Go back to the main project folder:
+     ```
+     cd ..
+     ```
+   - Package your code:
+     ```
+     zip -r zmap-scanner.zip . -x "*.git*" "*.csv" "*.zip"
+     ```
+   - Find your bucket name:
+     - Open my_server_info.txt in the terraform folder
+     - Look for s3_bucket_name and copy the name between quotes
+   - Upload your files (replace YOUR_BUCKET_NAME with the name you copied):
+     ```
+     aws s3 cp zmap-scanner.zip s3://YOUR_BUCKET_NAME/code/
+     aws s3 cp Data/small_input.csv s3://YOUR_BUCKET_NAME/data/input.csv
+     ```
+
+5. **Connect to Your Server**
+   - Find your server's IP address:
+     - Open my_server_info.txt in the terraform folder
+     - Look for instance_public_ip and copy the IP address
+   - Wait 5 minutes for your server to finish setting up
+   - Connect to your server:
+     - On Mac/Linux, type:
+       ```
+       ssh -i ~/zmap_key ubuntu@YOUR_IP_ADDRESS
+       ```
+     - On Windows, you may need to use PuTTY. If so:
+       - Download and install [PuTTY](https://www.putty.org/)
+       - Use PuTTYgen to convert your private key
+       - In PuTTY, enter the IP address, load your key, and connect
+
+6. **Test Your Scanner**
+   - Once connected to your server, you'll see a welcome message
+   - Type:
+     ```
+     cd /home/ubuntu/zmap-scanner
+     ls
+     ```
+   - You should see your project files
+   - Run a test scan:
+     ```
+     sudo python3 Scripts/zmap_postal_code_availability.py --input Data/input.csv --output output/test.png --simulate
+     ```
+   - When it finishes, type:
+     ```
+     ls output
+     ```
+   - You should see test.png, which contains your scan results
+
+7. **Download Your Results**
+   - To get files from your server to your computer:
+   - Open a new Terminal/Command Prompt window on your computer
+   - Create a folder for results:
+     ```
+     mkdir ~/zmap_results
+     ```
+   - Download your results (replace YOUR_IP_ADDRESS):
+     ```
+     scp -i ~/zmap_key ubuntu@YOUR_IP_ADDRESS:/home/ubuntu/zmap-scanner/output/* ~/zmap_results/
+     ```
+   - Now the results are in the zmap_results folder on your computer
+
+8. **When You're Finished**
+   - To shut down all AWS resources (to avoid charges):
+   - In your Terminal/Command Prompt, go to the terraform folder
+   - Type:
+     ```
+     terraform destroy
+     ```
+   - Type `yes` when prompted
+   - Wait for all resources to be removed
+   - Type:
+     ```
+     aws s3 rm s3://YOUR_BUCKET_NAME --recursive
+     ```
+   - This ensures you won't be charged for AWS usage
+
+**Troubleshooting Tips**
+- If you get "permission denied" errors, make sure you're using sudo for commands on the server
+- If connections fail, wait a few more minutes for the server to initialize
+- If you can't connect to the server, check that you're using the correct key file path
+- For Windows users, file paths use backslashes (\\) instead of forward slashes (/)
+- If your commands don't work, try typing them exactly as shown, watching for typos
 
 ## Usage
 
