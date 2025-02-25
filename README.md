@@ -1,36 +1,39 @@
 # ZMap Network Scanner
 
-A containerized network scanning solution that analyzes connectivity by postal code with database storage and API access.
+A friendly tool that checks if networks are working and organizes results by postal code.
 
-## Overview
+## What This Tool Does
 
-ZMap Network Scanner provides automated infrastructure for scanning IP networks and analyzing availability rates by postal code. The system features:
+ZMap Network Scanner is like a postal worker for the internet. It goes to different neighborhoods (networks) and checks which houses (computers) are accepting visitors. Then it organizes this information by postal code so you can see which areas have better connectivity.
 
-- Network scanning via ZMap with configurable parameters
-- Database storage for scan results (PostgreSQL)
-- RESTful API for triggering scans and retrieving results
-- Visualization of response rates via charts and heatmaps
-- Multi-container Docker deployment with Docker Compose
-- AWS deployment via Terraform and ECS
-- S3 integration for input/output data
-- Simulation mode for testing without network access
+Here's what it can do:
 
-## System Architecture
+- Check if computers on a network are responding (like knocking on doors)
+- Store all the results in a database so you can look at them later
+- Provide a simple way for other programs to use the results
+- Create pretty charts and maps showing which areas have better connectivity
+- Run inside containers (like little shipping boxes for software)
+- Work in the cloud (AWS) so you don't need a powerful computer
+- Work in "pretend mode" if you just want to test without actually scanning
 
-The system consists of three main components:
+## How It's Built
 
-1. **PostgreSQL Database** - Stores scan results and metadata
-2. **API Service** - RESTful API for scan management and result querying
-3. **Scanner Service** - Performs ZMap network scans and processes results
+The system has three main parts that work together:
 
-### Data Flow
+1. **The Storage Box** (Database) - Keeps track of all scan results, like a filing cabinet
+2. **The Assistant** (API Service) - Takes requests and returns results, like a helpful librarian
+3. **The Scanner** (Scanner Service) - Does the actual work of checking networks, like a postal inspector
 
-1. Scanner receives input CSV with networks and postal codes
-2. API service processes input and creates scan record in database
-3. ZMap scans networks and identifies reachable IPs
-4. Results are stored in database with postal code analysis
-5. Availability statistics are calculated and accessible via API
-6. Optional: Results are uploaded to S3 for persistence
+### How Information Flows
+
+Think of it like a delivery service:
+
+1. You give the system a list of addresses (networks) with their postal codes
+2. The Assistant creates a new job and puts it in the filing cabinet
+3. The Scanner checks each address to see if anyone's home
+4. All the results get organized and stored in the filing cabinet
+5. When you want to know the results, the Assistant looks them up for you
+6. If you want, the results can also be saved to the cloud for safekeeping
 
 ## Quick Start
 
@@ -52,31 +55,33 @@ brew install zmap           # macOS
 python Scripts/zmap_postal_code_availability.py --input Data/input.csv --output output/test.png
 ```
 
-### Docker Deployment
+### Running in a Container
 
-#### Single Container (Legacy)
+Containers are like shippable packages for software. They include everything needed to run the program.
+
+#### Simple Way (One Container)
 
 ```bash
-# Build the Docker image
+# Create the container package
 docker build -t zmap-scanner -f docker_scanner_build .
 
-# Run the container
+# Run the program in its container
 docker run -v $(pwd)/Data:/app/data -v $(pwd)/output:/app/output zmap-scanner
 ```
 
-#### Multi-Container (Recommended)
+#### Better Way (Multiple Containers Working Together)
 
 ```bash
-# Build and start all services
+# Start all the parts of the system
 docker-compose up -d
 
-# Run a scan using the scanner service
+# Run a test scan
 docker-compose run --rm scanner --input-file /app/data/input.csv --simulate
 
-# Access the API documentation
+# Open the web documentation to learn more
 open http://localhost:8000/docs
 
-# Trigger a scan via API
+# Ask for a scan using the Assistant (API)
 curl -X POST http://localhost:8000/scans \
   -H "Content-Type: application/json" \
   -d '{
@@ -87,7 +92,7 @@ curl -X POST http://localhost:8000/scans \
     "description": "Test scan"
   }'
 
-# View scan results
+# See the results
 curl http://localhost:8000/scans/{scan_id}/availability
 ```
 
@@ -314,23 +319,18 @@ python Scripts/zmap_visualizing_response_rate.py --input networks_and_ips.csv --
 - `--max-codes`: Maximum postal codes to display
 - `--min-threshold`: Minimum response rate threshold
 
-### API Endpoints
+### Talking to the Assistant (API)
 
-The system provides a RESTful API for managing scans and retrieving results:
+The system has a helpful Assistant (API) that understands certain commands. It's like asking a librarian for information:
 
-#### Scan Management:
-- `POST /scans`: Create a new scan
-- `GET /scans`: List all scans
-- `GET /scans/{scan_id}`: Get details of a specific scan
+#### Things You Can Ask For:
+- **Start a new scan**: Say "I want a new scan" with details about what to scan
+- **See all your scans**: Say "Show me all my scans"
+- **Look at one specific scan**: Say "Tell me about scan #5" (or whatever number)
+- **Get results**: Say "Show me the results for scan #5"
+- **Check if everything's working**: Say "Are you healthy?"
 
-#### Results:
-- `GET /scans/{scan_id}/availability`: Get availability statistics for a specific scan
-- `GET /availability`: Get availability statistics for all scans
-
-#### System:
-- `GET /health`: Health check endpoint
-
-Example API request to create a new scan:
+Example of asking for a new scan:
 ```json
 POST /scans
 {
@@ -343,55 +343,64 @@ POST /scans
 }
 ```
 
-For detailed API documentation, see the Swagger UI at `/docs` when the API service is running.
+When the Assistant is running, you can see a complete guide to all commands at `http://localhost:8000/docs`.
 
-## Architecture
+## How It Works Inside
 
-The system consists of:
-1. **Scanner Module**: Processes networks and runs ZMap
-2. **Analysis Module**: Calculates availability by postal code
-3. **Visualization Module**: Creates charts and heatmaps
-4. **Infrastructure**: Docker container and AWS deployment
+The system is built with pieces that each have a special job:
+1. **The Scanner**: Like a mail carrier, it goes to each address to see if someone's home
+2. **The Calculator**: Counts how many houses answered the door in each postal code
+3. **The Artist**: Creates colorful charts and maps to show the results
+4. **The House**: The container that keeps everything running, either on your computer or in the cloud
 
-## Input Format
+## Files You Need to Provide
 
-The input CSV file should contain the following columns:
-- `network`: IP network in CIDR notation (e.g., 192.168.1.0/24)
-- `postal_code`: Postal code for the network
+The program needs a special file with two pieces of information:
+- **Network addresses**: Where to look for computers (like "192.168.1.0/24")
+- **Postal codes**: Which neighborhood each network belongs to
 
-## Output
+This file should be a CSV (comma-separated values) file that looks like:
+```
+network,postal_code
+192.168.1.0/24,12345
+10.0.0.0/16,54321
+```
 
-The script produces:
-1. A CSV file with detailed results (`networks_and_ips.csv`)
-2. Visualizations of response rates by postal code (bar chart or heatmap)
-3. Log output with availability percentages
+## What You Get Back
 
-## AWS Deployment Options
+After running the program, you'll receive:
+1. A detailed list of every house (IP) that was checked
+2. Colorful pictures showing which postal codes have the most online computers
+3. A message telling you the percentage of computers that responded in each area
 
-### Option 1: EC2-Based Deployment
+## Running in the Cloud (AWS)
 
-See the [terraform/README.md](terraform/README.md) for instructions on deploying to a single EC2 instance.
+### Simple Way: On One Computer in the Cloud
 
-### Option 2: Container-Based Deployment (Recommended)
+Follow the [beginner's guide](terraform/README.md) to set up a single computer in the cloud.
 
-The Terraform configuration creates:
-- ECS cluster for running containerized services
-- RDS PostgreSQL instance for data storage
-- S3 bucket for input/output data
-- ECR repositories for container images
-- Load balancer for API access
-- IAM roles with required permissions
-- CloudWatch for logging and monitoring
+### Advanced Way: Using Multiple Cloud Services (Recommended)
 
-See [AWS_SETUP.md](AWS_SETUP.md) for detailed instructions on deploying the containerized version to AWS.
+This method creates a complete system in the cloud with:
+- Special computers just for running our containers
+- A professional database for storing results
+- Cloud storage for your files
+- A system that balances the workload
+- Security settings to keep everything safe
+- Tracking tools to see how everything's running
 
-## Security Considerations
+See the [detailed cloud setup guide](AWS_SETUP.md) for instructions.
 
-- ZMap requires special permissions for network scanning
-- Review network scanning policies before use
-- Docker container runs as non-root user
-- AWS deployment restricts SSH access to specified IPs
-- Ensure you have permission to scan the target networks
+## Important Safety Notes
+
+- Always get permission before checking if someone's home (scanning networks)
+- Checking too many houses too quickly can cause problems (like knocking on every door in a neighborhood at 3am)
+- Our program tries to be polite by:
+  - Running with limited permissions
+  - Only allowing certain people to access the cloud version
+  - Using "pretend mode" when you're just testing
+
+Remember: Just because you can knock on doors doesn't mean you should knock on ALL doors!
 
 ## License
 
